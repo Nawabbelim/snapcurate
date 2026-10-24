@@ -1,44 +1,45 @@
-# How to change what the AI picks or rejects (easy guide)
+# How to change what gets picked or rejected  (easy guide)
 
-Everything lives in 2 files inside `src/lib/`. Edit with any text editor, save, and the site updates.
+Everything is in ONE file:  src/rules.config.js   — three layers, top to bottom.
+Percentages are decimals: .25 = 25%.   [a, b] = [strict first try, looser second try].
+Save the file and the site updates (dev server) — then look at "All photos & why" on the results page.
 
-## 1) prompts.js  -> "what the AI can SEE"
-The AI is told a list of sentences. For every photo it asks: "which sentence describes this best?"
+## LAYER 1 — GLOBAL_REJECT: thrown out of EVERY vibe
+    injection:.25,     <- thing : how sure the AI must be.  SMALLER = stricter (rejects more)
+- Not rejecting something good?  RAISE its number.   Bad photo getting through?  LOWER it (or add it).
+- Add something new: first teach the AI the word in src/lib/prompts.js (JUNK list):
+      bills:'a bill, invoice or paper form',
+  then add   bills:.3,   to GLOBAL_REJECT.   You can also list any SUBJECT name there (e.g. shoes:.5).
+- GLOBAL_PIXEL = no-AI checks: tiny, flat, blurry, too dark/bright images and bad file names.
+- HUMAN_REQUIRED = how sure the AI must be that a person is present in "Human in every slide" mode.
 
-### A) Add something new it should recognise  (SUBJECT list)
-Add one line, key + plain English sentence:
-    bike2: 'a person riding a bicycle',
-Rule: every photo needs a place to land. If a type of photo keeps sneaking into a wrong vibe,
-add a sentence for it (e.g. `curtain: 'curtains and cloth hanging'`) so the AI puts it there instead.
+## LAYER 2 — CATEGORY_RULES: which photos BELONG in each vibe
+    animals:{include:['dog','cat','bird','animal','bigcat'],withHuman:['ppet'],minMatch:[.25,.12],exclude:{faces:.2,kids:.2}},
+- include    what the vibe WANTS        (add = accept more, delete = accept less)
+- withHuman  extra things accepted only in "Human in every slide" mode (a person with a pet counts as animals)
+- top        'top1' AI's #1 guess must be in include | 'top2' #1 or #2 | 'any'
+- minMatch   how sure the AI must be.   BIGGER = stricter
+- exclude    { thing: max }  reject if photo has MORE of it.   SMALLER = stricter
+- need       { thing: min }  reject if photo has LESS of it.   BIGGER = stricter
+- pixel      L brightness · sat colour strength · std contrast · warm orange · mono colourless   e.g. bw:{pixel:{mono:[.85,1]}}
+- dropLeastPretty   throw away the least pretty share of your photos (.25 = worst 25%)
+- Portrait extras:
+    faceRules  strict face checks (eyes open, head turn, max faces, score)
+    waiver     if the face-detector says "great portrait" (score ≥ .6, whole face in frame, space under the chin)
+               the "faces %" and subject checks are SKIPPED.  Lower score / neckRoom = more portraits skip the checks.
 
-### B) Reject more ugly/meaningless stuff  (JUNK list)
-Add a line:
-    bills: 'a bill, invoice or paper form',
-Then (optional) set how strict it is in JUNK_T:
-    bills: .3,
-Smaller number = stricter (rejects more). 0.3 = strict, 0.5 = only if very sure.
-If good photos get rejected, RAISE that number. If bad ones slip in, LOWER it.
-(Check the "rejected - see why" box on the results page to see what was thrown out.)
+## LAYER 3 — RANKING: who wins among accepted photos
+- matchWeight / beautyWeight : fits the vibe vs. looks pretty
+- pixelLook   sharpness, exposure (well lit), contrast, vividColour, subjectPop, palette   (keep adding to 1)
+- faceQuality eyesOpen, smile, straight, tilt, size   (keep adding to 1)
+- perCategory.perfect.groupPenalty  points taken off kinds you want LOWER priority (vehicle .15). groupCap = max of one kind.
+- duplicateDistance  bigger = more near-duplicates removed
 
-### C) "Boring" subjects  (BORING list)
-Subjects in this list are skipped in Most perfect, Colour, Pastel, Moody, B&W, Dump.
-Add a key name, e.g. BORING = [..., 'curtain'].
+## Where to look when a photo is wrong
+Results page -> "All photos & why": every photo shows its status and the exact reason, e.g.
+  "Global reject: looks like 'syringe...' (50%; limit 25%)"  -> LAYER 1
+  "Contains too much 'faces' (34%; limit 20%)"               -> LAYER 2 exclude
+  "Matched this vibe — rank #14"                              -> LAYER 3 (ranking)
 
-### D) Taste ("what is beautiful")  (BEAUTY list)
-Each pair = [good sentence, bad sentence]. Change the words to match your taste,
-e.g. ['a soft dreamy pastel photo','a harsh messy photo'].
-
-## 2) curate.js  -> "which photos go in which vibe"
-Find `const K={ ... }`. Each vibe has a list of subject keys it accepts:
-    animals:['dog','cat','bird','animal','bigcat'],
-Add a key to accept more (e.g. 'horse'), delete a key to accept less.
-A photo is only used if the AI's #1 guess for it is in that list.
-
-- Too few photos in a vibe?   Add more keys to its list (and add matching sentences in prompts.js).
-- Wrong photos in a vibe?     Remove the key that lets them in, or add a sentence in prompts.js so they land elsewhere.
-- People in a nature/food vibe? Look at the vibe's `gate:` (e.g. `S(p,PEOPLE)<.4`). Smaller = fewer people allowed.
-- Make a vibe stricter/looser:  `min:.2` on a vibe (higher = stricter). Default is .25.
-
-## 3) analyze.js  -> pixel rules (colour, sharpness, size)
-Search for `junk.push(` - those lines reject photos by pixels (tiny, blurry, too dark, flat graphics).
-Change the numbers there, e.g. `minSide<220` = reject images smaller than 220px.
+## What the AI can see (src/lib/prompts.js)
+SUBJECT = things it recognises · JUNK = things it can flag · BORING = skipped in generic vibes · BEAUTY/FACE = taste sentences.

@@ -22,7 +22,7 @@ export default function Home({start}){return(<>
     </div>
   </section>
   <div className="marquee"><div>{[...CATS,...CATS].map((c,i)=><span key={i}>{c.e} {c.t}</span>)}</div></div>
-  <section className="strip"><div><b>15</b><span>vibes to choose</span></div><div><b>0</b><span>uploads to servers</span></div><div><b>10</b><span>best pics</span></div></section>
+  <section className="strip"><div><b>14</b><span>vibes to choose</span></div><div><b>0</b><span>uploads to servers</span></div><div><b>10</b><span>best pics</span></div></section>
   <section className="block"><p className="kicker">HOW IT WORKS</p><h2>Three taps to a pretty post</h2>
     <div className="steps">{STEPS.map(([e,t,d],i)=><div key={t} className={'step s'+i}><div className="stop"><b>0{i+1}</b><Sticker e={e}/></div><h3>{t}</h3><p>{d}</p></div>)}</div></section>
   <RulesPanel/>

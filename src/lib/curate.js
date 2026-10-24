@@ -1,4 +1,11 @@
-import { BORING } from "./prompts.js";
+import { BORING, SUBJECT, JUNK } from "./prompts.js";
+import {
+  SETS,
+  CATEGORY_RULES,
+  GLOBAL_REJECT,
+  HUMAN_REQUIRED,
+  RANKING,
+} from "../rules.config.js";
 export const HUES = [
   "Red",
   "Orange",
@@ -13,25 +20,16 @@ export const HUES = [
   "Pink",
   "Rose",
 ];
-const S = (p, k) => k.reduce((s, x) => s + (p.main[x] || 0), 0);
-const top = (p) => Object.entries(p.main).sort((a, b) => b[1] - a[1])[0]?.[0];
+const ex = (n) => SETS[n] || [n];
+const S = (p, names) =>
+  names.flatMap(ex).reduce((s, x) => s + (p.main[x] || 0), 0);
+const rk = (p) => Object.entries(p.main).sort((a, b) => b[1] - a[1]);
+const top = (p) => (rk(p)[0] || [])[0];
 const GRP = {};
 const G = (g, a) => a.forEach((k) => (GRP[k] = g));
-const PEOPLE = [
-  "face",
-  "selfie",
-  "pcar",
-  "pbike",
-  "pgarden",
-  "pcoffee",
-  "ppet",
-  "pscene",
-  "family",
-  "child",
-];
-G("people", PEOPLE);
+G("people", SETS.people);
 G("animal", ["dog", "cat", "bird", "animal", "bigcat"]);
-G("plant", ["flowers", "garden", "plants"]);
+G("plant", SETS.plants);
 G("nature", [
   "landscape",
   "beach",
@@ -46,223 +44,182 @@ G("nature", [
 ]);
 G("vehicle", ["car", "sportscar", "moto", "bicycle"]);
 G("food", ["coffee", "food", "dessert", "drink"]);
-G("home", ["living", "bedroom", "kitchen", "house"]);
+G("home", SETS.home);
 G("art", ["art", "toy"]);
 G("city", ["city", "night"]);
 const grp = (p) => (p.hasModel ? GRP[top(p)] || "other" : "h" + p.hue);
-const K = {
-  portrait: ["face", "selfie"],
-  mixed: ["pcar", "pbike", "pgarden", "pcoffee", "ppet", "pscene"],
-  animals: ["dog", "cat", "bird", "animal", "bigcat"],
-  garden: ["flowers", "garden", "plants"],
-  nature: [
-    "landscape",
-    "beach",
-    "sky",
-    "moon",
-    "sunset",
-    "goldensky",
-    "mountains",
-    "forest",
-    "water",
-    "field",
-  ],
-  cars: ["car", "sportscar", "moto", "bicycle", "pcar", "pbike"],
-  food: ["coffee", "food", "dessert", "drink"],
-  home: ["living", "bedroom", "kitchen", "house"],
-  golden: ["sunset", "goldensky"],
-};
-const np = (p) => S(p, PEOPLE) < 0.25;
-// "keyed" vibes: the photo's MAIN subject (AI's #1 guess) must belong to the vibe, so random stuff can't sneak in
-const sub = (k, gate) => ({ ai: 1, keys: K[k], th: (p) => S(p, K[k]), gate });
+const fsc = (p) =>
+  p.face && p.face.n
+    ? p.face.score
+    : p.hasModel
+      ? p.fq == null
+        ? 0.5
+        : p.fq
+      : 0.5;
+const isHuman = (p) =>
+  (p.face && p.face.n > 0) || S(p, ["people"]) >= HUMAN_REQUIRED.minPeople;
+const hasFace = (p) => (p.face && p.face.n > 0) || grp(p) === "people";
 export const CATS = [
   {
     id: "perfect",
     e: "💎",
     t: "Most perfect",
     d: "Prettiest shots of ANY subject",
-    hot: 1,
-    th: () => 1,
   },
-  {
-    id: "color",
-    e: "🎨",
-    t: "Colour match",
-    d: "Best photos of ONE colour",
-    hot: 1,
-    th: (p) => 0.3 + 0.7 * Math.min(1, p.sat * 1.6),
-    gate: (p, o) => (o.hue === -1 ? p.neutral : !p.neutral && p.hue === o.hue),
-  },
+  { id: "color", e: "🎨", t: "Colour match", d: "Best photos of ONE colour" },
   {
     id: "portrait",
     e: "🧑",
     t: "Portrait faces",
-    d: "One person, face in focus",
-    ai: 1,
-    th: (p) => S(p, ["face", "selfie"]) + 0.4 * S(p, K.mixed),
-    pass: (p, ms) =>
-      S(p, ["face", "selfie"]) >= ms + 0.1 &&
-      [
-        "face",
-        "selfie",
-        "pscene",
-        "pcoffee",
-        "clothes",
-        "jewel",
-        "hair",
-      ].includes(top(p)) &&
-      S(p, [
-        "family",
-        "child",
-        "toy",
-        "art",
-        "bigcat",
-        "dog",
-        "cat",
-        "bird",
-        "animal",
-        "flowers",
-        "moto",
-        "car",
-        "sportscar",
-        "bicycle",
-      ]) < 0.2,
+    d: "Best human faces & poses",
   },
-
-  {
-    id: "mixed",
-    e: "🧍",
-    t: "Face + things",
-    d: "person with a car, bike, coffee, pet…",
-    ...sub(
-      "mixed",
-      (p) => S(p, ["family", "child", "flowers", "garden", "plants"]) < 0.2,
-    ),
-  },
-  {
-    id: "animals",
-    e: "🐶",
-    t: "Animals",
-    d: "Pets and wildlife",
-    ...sub("animals", (p) => S(p, ["face", "selfie", "family", "child"]) < 0.2),
-  },
+  { id: "animals", e: "🐶", t: "Animals", d: "Pets and wildlife" },
   {
     id: "garden",
     e: "🌸",
     t: "Flowers & plants",
-    d: "Blooms, gardens, greenery",
-    ...sub("garden", np),
+    d: "Flowers, leaves, gardens, plants",
   },
-  {
-    id: "nature",
-    e: "🏔️",
-    t: "Nature & sky",
-    d: "Landscapes, beach, skies",
-    ...sub("nature", (p) => S(p, PEOPLE) < 0.4),
-    min: 0.2,
-  },
-  {
-    id: "golden",
-    e: "🌇",
-    t: "Sunset / sunrise",
-    d: "Golden skies only",
-    hot: 1,
-    ...sub("golden", (p) => p.warm > 0.1),
-  },
+  { id: "nature", e: "🏔️", t: "Nature & sky", d: "Landscapes, beach, skies" },
+  { id: "golden", e: "🌇", t: "Sunset / sunrise", d: "Golden skies only" },
   {
     id: "cars",
     e: "🏍️",
     t: "Cars & rides",
     d: "Vehicles, or you with a vehicle",
-    ...sub("cars", () => true),
   },
-  {
-    id: "food",
-    e: "☕",
-    t: "Coffee & food",
-    d: "Cafe, drinks, desserts",
-    hot: 1,
-    ...sub("food", np),
-  },
+  { id: "food", e: "☕", t: "Coffee & food", d: "Cafe, drinks, desserts" },
   {
     id: "home",
     e: "🏡",
     t: "Cozy home",
-    d: "Pretty rooms & decor",
-    ...sub("home", (p) => S(p, PEOPLE) < 0.3),
+    d: "Rooms, sofa, bed, TV, fridge, AC, fan",
   },
-  {
-    id: "pastel",
-    e: "🧁",
-    t: "Soft pastel",
-    d: "Light, airy, dreamy",
-    hot: 1,
-    th: (p) =>
-      p.hasModel ? Math.min(1, (p.mood.pastel || 0) * 1.5 + 0.1) : p.L,
-    gate: (p) => p.L > 0.5 && p.sat < 0.6,
-  },
+  { id: "pastel", e: "🧁", t: "Soft pastel", d: "Light, airy, dreamy" },
   {
     id: "moody",
     e: "🌙",
     t: "Dark & moody",
     d: "Cinematic, beautiful shadows",
-    ai: 1,
-    hot: 1,
-    th: (p) => p.mood.moody || 0,
-    gate: (p) =>
-      p.L < 0.5 &&
-      p.std > 30 &&
-      [
-        "landscape",
-        "face",
-        "selfie",
-        "city",
-        "night",
-        "living",
-        "sky",
-        "moon",
-        "car",
-        "sportscar",
-        "moto",
-        "coffee",
-        "pscene",
-        "bigcat",
-        "art",
-        "flowers",
-        "garden",
-        "dog",
-        "cat",
-        "bird",
-        "animal",
-      ].includes(top(p)),
   },
-  {
-    id: "bw",
-    e: "🎞️",
-    t: "Black & white",
-    d: "True monochrome / film",
-    th: (p) => (p.hasModel ? 0.5 + 0.5 * (p.mood.bw || 0) : 1),
-    gate: (p) => p.mono > 0.88 && (!p.hasModel || (p.mood.bw || 0) > 0.3),
-  },
-  {
-    id: "dump",
-    e: "📸",
-    t: "Photo dump",
-    d: "Varied best-of mix",
-    hot: 1,
-    th: (p) => 0.5,
-  },
-];
+  { id: "bw", e: "🎞️", t: "Black & white", d: "True monochrome / film" },
+  { id: "dump", e: "📸", t: "Photo dump", d: "Varied best-of mix" },
+].map((c) => ({
+  ...c,
+  ai: !!(CATEGORY_RULES[c.id].include || CATEGORY_RULES[c.id].ai),
+}));
+const TH = {
+  color: (p) => 0.3 + 0.7 * Math.min(1, p.sat * 1.6),
+  pastel: (p) =>
+    p.hasModel ? Math.min(1, (p.mood.pastel || 0) * 1.5 + 0.1) : p.L,
+  moody: (p) => p.mood.moody || 0,
+  bw: (p) => (p.hasModel ? 0.5 + 0.5 * (p.mood.bw || 0) : 1),
+  perfect: () => 1,
+  dump: () => 0.5,
+};
+const v = (x, t) => (Array.isArray(x) ? x[t] : x);
+const pct = (x) => Math.round(x * 100) + "%";
+const lab = (k) =>
+  (SUBJECT[k] || JUNK[k] || k || "unknown").replace(/^(a|an) /, "");
 const ham = (a, b) => {
   let d = 0;
   for (let i = 0; i < 64; i++) if (a[i] !== b[i]) d++;
   return d;
 };
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+// ===== LAYER 1: global rejection (same for every vibe) =====
+function globalWhy(p) {
+  if (p.junk.length) return "Global reject (picture check): " + p.junk[0];
+  for (const [k, t] of Object.entries(GLOBAL_REJECT)) {
+    const s = p.main[k] || 0;
+    if (s > t)
+      return `Global reject: looks like “${lab(k)}” (${pct(s)}; limit ${pct(t)})`;
+  }
+  return null;
+}
+// ===== LAYER 2: category rules — plain-English reason if the photo does NOT belong, else null =====
+function why(p, id, cfg, t, opts, cutVal, b) {
+  if (b < cutVal)
+    return "Not as pretty/sharp as your better photos (below the quality cut)";
+  if (opts.human && !isHuman(p))
+    return "Human mode: no person found in this photo";
+  const tp = top(p),
+    mm = cfg.minMatch || [0.25, 0.12],
+    W = cfg.waiver,
+    F = p.face;
+  const great = !!(
+    W &&
+    F &&
+    F.n >= 1 &&
+    F.score >= W.score &&
+    (!W.fullFace || F.full) &&
+    F.chinRoom >= W.neckRoom
+  ); // detector says: great portrait -> skip subject checks
+  if (cfg.include) {
+    const incN = [...cfg.include, ...(opts.human ? cfg.withHuman || [] : [])],
+      inc = incN.flatMap(ex),
+      m = S(p, incN),
+      mode = cfg.top || "top1";
+    if (!great) {
+      if (
+        mode !== "any" &&
+        !rk(p)
+          .slice(0, mode === "top2" ? 2 : 1)
+          .some((x) => inc.includes(x[0]))
+      )
+        return `Main subject looks like “${lab(tp)}” (${pct(p.main[tp] || 0)}), not this vibe`;
+      if (m < v(mm, t))
+        return `Only ${pct(m)} match for this vibe (needs ${pct(v(mm, t))})`;
+    }
+  } else if (p.hasModel && cfg.skipBoring !== false && BORING.includes(tp))
+    return `Unclear/boring subject: “${lab(tp)}”`;
+  if (cfg.topIn && !cfg.topIn.includes(tp))
+    return `Main subject “${lab(tp)}” does not suit this vibe`;
+  for (const [n, mx] of Object.entries(cfg.exclude || {})) {
+    if (opts.human && (n === "people" || n === "faces")) continue;
+    const s = S(p, [n]);
+    if (s >= v(mx, t))
+      return `Contains too much “${n}” (${pct(s)}; limit ${pct(v(mx, t))})`;
+  }
+  for (const [n, mn] of Object.entries(cfg.need || {})) {
+    if (great && n === "faces") continue;
+    const s = S(p, [n]);
+    if (s < v(mn, t))
+      return `Not enough “${n}” visible (${pct(s)}; needs ${pct(v(mn, t))})`;
+  }
+  for (const [f, [lo, hi]] of Object.entries(cfg.pixel || {}))
+    if (p[f] < lo || p[f] > hi)
+      return `Picture “${f}” (${(+p[f]).toFixed(2)}) is outside this vibe's range ${lo}–${hi}`;
+  if (id === "color") {
+    if (opts.hue === -1) {
+      if (!p.neutral) return "Not black & white / neutral";
+    } else if (p.neutral || p.hue !== opts.hue)
+      return `Colour is not ${HUES[opts.hue]}`;
+  }
+  const fr = cfg.faceRules;
+  if (fr && t === 0 && F) {
+    if (F.n === 0) return "No clear human face found";
+    if (F.n > fr.maxFaces) return `Too many faces (${F.n})`;
+    if (F.eyes < fr.minEyesOpen) return "Eyes look closed or half-closed";
+    if (F.yaw > fr.maxYaw) return `Face turned away (${Math.round(F.yaw)}°)`;
+    if (F.score < fr.minScore) return "Pose / expression not flattering enough";
+  }
+  if (cfg.minFaceScore && hasFace(p) && fsc(p) < cfg.minFaceScore)
+    return "Face not perfect enough (eyes / angle / smile) for this vibe";
+  return null;
+}
 export function curate(photos, id, o) {
   const cat = CATS.find((c) => c.id === id),
-    opts = { ...o };
-  const clean = photos.filter((p) => !p.junk.length);
+    cfg = CATEGORY_RULES[id] || {},
+    rc = (RANKING.perCategory || {})[id] || {},
+    opts = { ...o },
+    info = {};
+  const clean = [];
+  photos.forEach((p) => {
+    const r = globalWhy(p);
+    if (r) info[p.id] = { s: "rejected", r };
+    else clean.push(p);
+  });
   if (id === "color" && opts.hue === -2) {
     const n = {};
     clean
@@ -271,71 +228,115 @@ export function curate(photos, id, o) {
     const t = Object.entries(n).sort((a, b) => b[1] - a[1])[0];
     opts.hue = t ? +t[0] : -1;
   }
-  const needsAI = !!cat.ai && !photos.some((p) => p.hasModel);
-  // beauty: pixel look (vivid colour, contrast, subject pop, palette harmony) + AI taste. Normalised per subject so faces can't win just for being faces.
-  const raw = (p) => (p.hasModel ? 0.35 * p.pb + 0.65 * p.q : p.q);
+  const needsAI =
+    (!!cat.ai && !photos.some((p) => p.hasModel)) ||
+    (!!opts.human &&
+      !photos.some((p) => p.hasModel || (p.face && p.face.n > 0)));
+  // ===== LAYER 3: ranking — beauty = AI taste + picture look, compared fairly between subject types =====
+  const BL = RANKING.blend,
+    raw = (p) => (p.hasModel ? BL.aiTaste * p.pb + BL.pixelLook * p.q : p.q);
   const gs = {};
   clean.forEach((p) => (gs[grp(p)] = gs[grp(p)] || []).push(raw(p)));
   const gAll = mean(clean.map(raw));
   const adj = (p) => {
-    const a = gs[grp(p)];
-    return raw(p) - (a && a.length >= 4 ? 0.7 * (mean(a) - gAll) : 0);
+    const g = grp(p),
+      a = gs[g];
+    let b = raw(p) - (a && a.length >= 4 ? 0.7 * (mean(a) - gAll) : 0);
+    if (rc.groupPenalty) b -= rc.groupPenalty[g] || 0;
+    if (rc.faceWeight && !cfg.include && hasFace(p))
+      b = (1 - rc.faceWeight) * b + rc.faceWeight * fsc(p);
+    return b;
   };
-  const bs = clean.map(adj).sort((a, b) => a - b);
-  const diverse = id === "perfect" || id === "dump",
-    rank = (a) => (diverse ? a.b : 0.5 * a.t + 0.5 * a.b);
+  const bs = clean.map(adj).sort((a, b) => a - b),
+    diverse = !!rc.groupCap;
+  const inc = cfg.include
+    ? [...cfg.include, ...(opts.human ? cfg.withHuman || [] : [])]
+    : null;
+  const th = (p) =>
+    inc
+      ? S(p, inc) +
+        Object.entries(rc.boost || {}).reduce(
+          (s, [k, w]) => s + w * S(p, [k]),
+          0,
+        )
+      : TH[id](p);
+  const fw = cfg.include ? rc.faceWeight || 0 : 0;
+  const rank = (a) =>
+    diverse && !cfg.include
+      ? a.b
+      : RANKING.matchWeight * a.t +
+        RANKING.beautyWeight * a.b +
+        fw * fsc(a.p) * (a.p.face && a.p.face.n ? 1 : 0.3);
+  const skipR = {},
+    DD = RANKING.duplicateDistance;
   const pick = (sorted) => {
     let pool = [];
-    for (const cap of diverse ? [2, 4, 99] : [99]) {
+    for (const m of [1, 2, 99]) {
       const cnt = {};
       pool = [];
+      for (const k in skipR) delete skipR[k];
       for (const a of sorted) {
-        const g = grp(a.p);
-        if ((cnt[g] || 0) >= cap) continue;
-        if (pool.every((q) => ham(q.hash, a.p.hash) > 6)) {
-          pool.push(a.p);
-          cnt[g] = (cnt[g] || 0) + 1;
-          if (pool.length >= 10) break;
+        const g = grp(a.p),
+          gc = rc.groupCap || {},
+          cap = (gc[g] ?? gc.default ?? 99) * m;
+        if ((cnt[g] || 0) >= cap) {
+          skipR[a.p.id] =
+            `Matched, but you already have enough “${g}” photos — kept the best`;
+          continue;
         }
+        if (!pool.every((q) => ham(q.hash, a.p.hash) > DD)) {
+          skipR[a.p.id] = "Matched, but very similar to a better photo";
+          continue;
+        }
+        pool.push(a.p);
+        cnt[g] = (cnt[g] || 0) + 1;
+        if (pool.length >= 10) break;
       }
-      if (pool.length >= 10) break;
+      if (pool.length >= 10 || !rc.groupCap) break;
     }
     return pool;
   };
-  // tier 1 = strict; if fewer than 6 found, tier 2 relaxes (lower match score, no beauty cut) so your normal clicked photos are not forgotten
-  const keyed = cat.keys || cat.pass,
-    tiers = keyed
-      ? [
-          [cat.min || 0.25, 0.1],
-          [0.12, 0],
-        ]
-      : [[0, 0.25]];
+  // tier 0 = strict; if fewer than 6 photos pass, tier 1 (looser numbers) is tried so normal photos are not forgotten
   let pool = [],
+    sorted = [],
+    fails = {};
+  for (const t of [0, 1]) {
+    const q = v(
+        cfg.dropLeastPretty || (cfg.include ? [0.1, 0] : [0.25, 0.25]),
+        t,
+      ),
+      cutVal = q <= 0 ? -9 : bs[Math.floor(bs.length * q)] || -9;
+    fails = {};
     sorted = [];
-  for (const [ms, qq] of tiers) {
-    const cut = id === "perfect" ? -9 : bs[Math.floor(bs.length * qq)] || 0;
-    sorted = needsAI
-      ? []
-      : clean
-          .filter(
-            (p) =>
-              adj(p) >= cut &&
-              (cat.pass
-                ? cat.pass(p, ms)
-                : cat.keys
-                  ? cat.keys.includes(top(p)) && S(p, cat.keys) >= ms
-                  : !(p.hasModel && BORING.includes(top(p)))) &&
-              (!cat.gate || cat.gate(p, opts)),
-          )
-          .map((p) => ({ p, t: cat.th(p, opts), b: adj(p) }))
-          .sort((x, y) => rank(y) - rank(x));
+    for (const p of clean) {
+      const b = adj(p),
+        r = needsAI
+          ? "The AI helper is not loaded, so this vibe cannot judge the photo"
+          : why(p, id, cfg, t, opts, cutVal, b);
+      if (r) fails[p.id] = r;
+      else sorted.push({ p, t: th(p), b });
+    }
+    sorted.sort((x, y) => rank(y) - rank(x));
     pool = pick(sorted);
     if (pool.length >= 6) break;
   }
+  clean.forEach((p) => {
+    if (fails[p.id]) info[p.id] = { s: "rejected", r: fails[p.id] };
+    else {
+      const i = pool.indexOf(p);
+      info[p.id] = {
+        s: "lower",
+        r:
+          i >= 0
+            ? `Matched this vibe — rank #${i + 1} (the carousel uses the top 10)`
+            : skipR[p.id] || "Matched, but ranked lower than better photos",
+      };
+    }
+  });
   const extra = sorted
     .map((a) => a.p)
     .filter(
-      (p) => !pool.includes(p) && pool.every((q) => ham(q.hash, p.hash) > 6),
+      (p) => !pool.includes(p) && pool.every((q) => ham(q.hash, p.hash) > DD),
     )
     .slice(0, 20);
   return {
@@ -343,5 +344,6 @@ export function curate(photos, id, o) {
     hue: opts.hue,
     rejected: photos.length - clean.length,
     needsAI,
+    info,
   };
 }
